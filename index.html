@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Documentações</title>
+
+<!-- Dependências Externas (O 'defer' evita timeout no Safari/iOS) -->
+
+<script src="https://cdn.tailwindcss.com?v=3.4.3" defer></script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<!-- Ligação ao CSS Local -->
+
+<link rel="stylesheet" href="style.css">
+
+<!-- Ligação ao JS Local (O 'defer' garante que o seu código acede ao DOM sem bloquear a renderização) -->
+
+<script src="script.js" defer></script>
+
+<!-- Componente Alpine.js (Carregado após o seu script.js para que as lógicas já estejam registadas) -->
+
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div x-data="dashboard" class="min-h-screen">
+
+<header class="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
+<div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:py-4 sm:px-6 lg:px-8">
+<div class="flex items-center gap-3">
+<img src="https://res.cloudinary.com/dbnyxxhe3/image/upload/v1772102800/02_Prancheta_1_ksm9oj.png" alt="Logo" class="h-8 sm:h-10 md:h-11 w-auto object-contain transition-all duration-300">
+<div>
+<h1 class="text-lg sm:text-xl font-semibold tracking-tight">Documentações</h1>
+<p class="text-xs sm:text-sm text-slate-500">conectado a base de dados</p>
+</div>
+</div>
+
+<div class="hidden md:flex items-center gap-2">
+<button @click="carregar()"
+class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50">
+Atualizar
+</button>
+</div>
+</div>
+
+</header>
+
+<main class="mx-auto max-w-7xl px-4 py-4 sm:py-6 sm:px-6 lg:px-8">
+
+<!-- Painel Visual de Erro -->
+
+<template x-if="errorMessage">
+<div class="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4 shadow-sm flex items-start gap-3">
+<span class="text-xl">⚠️</span>
+<div>
+<h3 class="text-sm font-semibold text-rose-800">Erro de permissão no Supabase</h3>
+<p class="text-sm text-rose-700 mt-1" x-text="errorMessage"></p>
+<p class="text-xs text-rose-600 mt-2 font-medium">Lembre-se de rodar o comando "GRANT USAGE" no SQL Editor do Supabase.</p>
+</div>
+</div>
+</template>
+
+<section class="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+<div class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+<div class="mb-4 flex items-center justify-between">
+<h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Resumo geral</h2>
+<span class="text-sm text-slate-400" x-text="loading ? 'Carregando...' : ${stats.total} registros"></span>
+</div>
+
+<div class="grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-4">
+<div @click="scrollToLista('')" title="Ver todos e ir para a lista" class="rounded-xl bg-slate-50 p-3 sm:p-4 cursor-pointer hover:bg-slate-100 transition-colors">
+<p class="text-xs text-slate-500">Total</p>
+<p class="mt-1 text-xl sm:text-2xl font-semibold" x-text="stats.total"></p>
+</div>
+<div @click="scrollToLista('em_dia')" title="Filtrar em dia e ir para a lista" class="rounded-xl bg-emerald-50 p-3 sm:p-4 cursor-pointer hover:bg-emerald-100 transition-colors">
+<p class="text-xs text-emerald-700">Em dia</p>
+<p class="mt-1 text-xl sm:text-2xl font-semibold text-emerald-700" x-text="stats.emDia"></p>
+</div>
+<div @click="scrollToLista('vence_em_breve')" title="Filtrar prestes a vencer e ir para a lista" class="rounded-xl bg-amber-50 p-3 sm:p-4 cursor-pointer hover:bg-amber-100 transition-colors">
+<p class="text-xs text-amber-700">Prestes a vencer</p>
+<p class="mt-1 text-xl sm:text-2xl font-semibold text-amber-700" x-text="stats.venceEmBreve"></p>
+</div>
+<div @click="scrollToLista('vencido')" title="Filtrar vencidos e ir para a lista" class="rounded-xl bg-rose-50 p-3 sm:p-4 cursor-pointer hover:bg-rose-100 transition-colors">
+<p class="text-xs text-rose-700">Vencidos</p>
+<p class="mt-1 text-xl sm:text-2xl font-semibold text-rose-700" x-text="stats.vencido"></p>
+</div>
+</div>
+
+</div>
+
+<div class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+<div class="mb-4">
+<h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Categorias</h2>
+</div>
+
+<div class="space-y-3 max-h-72 overflow-auto pr-1">
+<template x-for="item in resumoCategorias" :key="item.categoria">
+<div class="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+<div>
+<p class="font-medium text-sm sm:text-base" x-text="item.categoria"></p>
+<p class="text-xs sm:text-sm text-slate-500"><span x-text="item.total"></span> documentos</p>
+</div>
+<div class="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
+<span class="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700" x-text="'OK ' + item.emDia"></span>
+<span class="rounded-full bg-amber-100 px-2 py-1 text-amber-700" x-text="'Breve ' + item.venceEmBreve"></span>
+<span class="rounded-full bg-rose-100 px-2 py-1 text-rose-700" x-text="'Atraso ' + item.vencido"></span>
+</div>
+</div>
+</template>
+</div>
+
+</div>
+</section>
+
+<section class="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+<div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+<input x-model="search"
+type="text"
+placeholder="Buscar documento, órgão, categoria..."
+class="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 w-full"/>
+
+<select x-model="statusFilter" class="rounded-xl border border-slate-200 px-4 py-3 text-sm w-full">
+<option value="">Todos os status</option>
+<option value="vencido">Vencidos</option>
+<option value="vence_em_breve">Prestes a vencer</option>
+<option value="em_dia">Em dia</option>
+</select>
+
+<select x-model="categoriaFilter" class="rounded-xl border border-slate-200 px-4 py-3 text-sm w-full">
+<option value="">Todas as categorias</option>
+<template x-for="cat in categoriasUnicas" :key="cat">
+<option :value="cat" x-text="cat"></option>
+</template>
+</select>
+
+<button @click="limparFiltros()"
+class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium hover:bg-slate-50 w-full">
+Limpar filtros
+</button>
+
+</div>
+</section>
+
+<section id="documentos-section" class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden scroll-mt-24">
+<div class="border-b border-slate-200 px-4 sm:px-5 py-4">
+<h2 class="text-base font-semibold">Documentos prioritários</h2>
+<p class="text-xs sm:text-sm text-slate-500 mt-1">Primeiro vencidos, depois os que vencem antes, depois os em dia. <strong>Clique em um documento para abrir as informações gerais.</strong></p>
+</div>
+
+<div class="hidden lg:block overflow-x-auto">
+<table class="min-w-full text-sm">
+<thead class="bg-slate-50 text-left text-slate-500">
+<tr>
+<th class="px-5 py-3 font-medium">Apelido</th>
+<th class="px-5 py-3 font-medium">Órgão expedidor</th>
+<th class="px-5 py-3 font-medium">Categoria</th>
+<th class="px-5 py-3 font-medium">Vencimento</th>
+<th class="px-5 py-3 font-medium">Dias</th>
+<th class="px-5 py-3 font-medium">Status</th>
+</tr>
+</thead>
+<tbody>
+<template x-for="doc in filteredDocumentos" :key="doc.id">
+<tr @click="selected = doc"
+title="Clique para ver informações gerais"
+class="cursor-pointer border-t border-slate-100 transition hover:bg-slate-50 hover:shadow-inner">
+<td class="px-5 py-4">
+<div class="font-medium" x-text="doc.apelido || '-'"></div>
+</td>
+<td class="px-5 py-4" x-text="doc.orgao_expeditor || doc.orgaoExpeditor || '-'"></td>
+<td class="px-5 py-4" x-text="doc.categoria || '-'"></td>
+<td class="px-5 py-4" x-text="formatDate(doc.vencimento)"></td>
+<td class="px-5 py-4">
+<span :class="urgenciaDiasClass(doc)" x-text="formatDias(doc)"></span>
+</td>
+<td class="px-5 py-4">
+<span class="rounded-full px-2.5 py-1 text-xs font-medium"
+:class="badgeClass(doc)"
+x-text="labelStatus(doc)">
+</span>
+</td>
+</tr>
+</template>
+</tbody>
+</table>
+</div>
+
+<div class="space-y-3 p-4 lg:hidden">
+<template x-for="doc in filteredDocumentos" :key="doc.id">
+<div @click="selected = doc"
+title="Clique para ver informações gerais"
+class="rounded-xl border border-slate-200 p-4 cursor-pointer transition hover:bg-slate-50 hover:shadow-md">
+<div class="flex items-start justify-between gap-3">
+<div>
+<p class="font-medium" x-text="doc.apelido || '-'"></p>
+<p class="text-sm text-slate-500" x-text="doc.orgao_expeditor || doc.orgaoExpeditor || '-'"></p>
+</div>
+<span class="rounded-full px-2.5 py-1 text-xs font-medium text-center shrink-0"
+:class="badgeClass(doc)"
+x-text="labelStatus(doc)">
+</span>
+</div>
+
+<div class="mt-3 grid grid-cols-2 gap-3 text-sm">
+<div>
+<p class="text-xs text-slate-400">Categoria</p>
+<p class="truncate" x-text="doc.categoria || '-'"></p>
+</div>
+<div>
+<p class="text-xs text-slate-400">Dias restantes</p>
+<p :class="urgenciaDiasClass(doc)" x-text="formatDias(doc)"></p>
+</div>
+</div>
+
+</div>
+</template>
+
+</div>
+</section>
+
+</main>
+
+<div x-show="selected" x-cloak class="fixed inset-0 z-40">
+<div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm touch-none"
+x-show="selected"
+x-transition.opacity.duration.300ms
+@click="selected = null"></div>
+
+<aside class="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto bg-white shadow-2xl flex flex-col overscroll-contain"
+x-show="selected"
+x-transition:enter="transform transition ease-out duration-300"
+x-transition:enter-start="translate-x-full"
+x-transition:enter-end="translate-x-0"
+x-transition:leave="transform transition ease-in duration-200"
+x-transition:leave-start="translate-x-0"
+x-transition:leave-end="translate-x-full">
+
+<div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 sm:px-6 py-3 sm:py-4 sticky top-0 z-10">
+<div>
+<h3 class="text-base sm:text-lg font-semibold text-slate-800">Detalhes do documento</h3>
+<p class="text-xs sm:text-sm text-slate-500 truncate" x-text="selected ? (selected.tipo_doc || selected.tipo_documento || selected.tipoDocumento || '-') : '-'"></p>
+</div>
+<button @click="selected = null" class="rounded-lg p-2 sm:p-3 text-slate-400 hover:text-slate-800 hover:bg-slate-200 transition-colors">✕</button>
+</div>
+
+<div class="space-y-6 sm:space-y-8 p-4 sm:p-6">
+
+<div>
+<p class="text-xs sm:text-sm font-medium text-slate-500 uppercase tracking-wide" x-text="selected ? (selected.orgao_expeditor || selected.orgaoExpeditor || '-') : '-'"></p>
+<p class="text-xl sm:text-2xl font-bold text-slate-900 mt-1" x-text="selected ? (selected.documento || '-') : '-'"></p>
+
+<div class="flex flex-wrap items-center gap-2 sm:gap-3 mt-3 sm:mt-4">
+<span class="inline-flex rounded-full px-3 py-1 text-xs sm:text-sm font-medium shadow-sm"
+:class="badgeClass(selected)"
+x-text="labelStatus(selected)">
+</span>
+<span class="text-xs sm:text-sm font-semibold"
+:class="urgenciaDiasClass(selected)"
+x-text="formatDiasTexto(selected)"></span>
+</div>
+</div>
+
+<div class="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5 shadow-sm">
+<h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 sm:mb-4 flex items-center gap-2">
+Prazos e Datas
+</h4>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
+<div>
+<p class="text-xs text-slate-500">Emissão</p>
+<p class="font-medium text-slate-800 mt-0.5" x-text="formatDate(selected ? selected.emissao : null)"></p>
+</div>
+<div>
+<p class="text-xs text-slate-500">Vencimento</p>
+<p class="font-medium text-slate-800 mt-0.5" x-text="formatDate(selected ? selected.vencimento : null)"></p>
+</div>
+<div>
+<p class="text-xs text-slate-500">Última Renovação</p>
+<p class="font-medium text-slate-800 mt-0.5" x-text="formatDate(selected ? (selected.data_renovacao || selected.dataRenovacao) : null)"></p>
+</div>
+
+<div class="relative cursor-help group inline-block">
+<p class="text-xs text-blue-600/70 border-b border-dashed border-blue-300 inline-block transition-colors group-hover:text-blue-800 group-hover:border-blue-500">
+Sugestão de solicitação
+</p>
+<p class="font-bold text-blue-700 mt-0.5 text-base sm:text-lg" x-text="formatDate(selected ? selected.data_sugerida_renovacao : null)"></p>
+
+<div class="absolute bottom-full left-0 sm:left-1/2 sm:-translate-x-1/2 mb-2 w-48 sm:w-max px-3 py-2 bg-slate-800 text-white text-xs font-medium rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-50 pointer-events-none text-center sm:whitespace-nowrap">
+<span x-text="'Renove com ' + (selected ? (selected.renova_antes || 0) : 0) + ' dias de antecedência'"></span>
+<div class="absolute top-full left-4 sm:left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+</div>
+</div>
+
+</div>
+</div>
+
+<div>
+<h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 sm:mb-4 border-b border-slate-100 pb-2">Informações Adicionais</h4>
+<div class="space-y-4 sm:space-y-5">
+<div>
+<p class="text-xs text-slate-500 mb-1">Categoria</p>
+<span class="inline-flex rounded-lg bg-slate-100 px-2.5 py-1 text-sm font-medium text-slate-700" x-text="selected ? (selected.categoria || '-') : '-'"></span>
+</div>
+
+<div>
+<p class="text-xs text-slate-500">Descrição</p>
+<p class="leading-relaxed text-slate-700 text-sm mt-1 bg-slate-50 p-3 rounded-lg border border-slate-100" x-text="selected ? (selected.descricao || 'Sem descrição cadastrada.') : 'Sem descrição cadastrada.'"></p>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div>
+<p class="text-xs text-slate-500 mb-1">Site</p>
+<template x-if="selected && selected.site">
+<a :href="selected.site" target="_blank" class="inline-block text-sm text-blue-600 hover:text-blue-800 hover:underline transition-colors truncate w-full" x-text="selected.site" title="Abrir site"></a>
+</template>
+<template x-if="!selected || !selected.site">
+<p class="text-sm text-slate-400">-</p>
+</template>
+</div>
+
+<div class="w-full overflow-hidden">
+<p class="text-xs text-slate-500 mb-1">Arquivo / Caminho Local</p>
+<p class="truncate text-sm text-slate-600 select-all block w-full"
+:title="selected ? (selected.caminho_arquivo || selected.caminhoArquivo || 'Nenhum arquivo') : 'Nenhum arquivo'"
+x-text="selected ? (selected.caminho_arquivo || selected.caminhoArquivo || '-') : '-'"></p>
+</div>
+</div>
+
+</div>
+</div>
+
+</div>
+</aside>
+
+</div>
+</div>
+</body>
+</html>
