@@ -240,7 +240,7 @@ document.addEventListener('alpine:init', () => {
       if (doc.is_vitalicio) return 'Vitalício';
       const status = doc.status_prazo || doc.statusPrazo;
       if (status === 'vencido') return 'Vencido';
-      if (status === 'vence_em_breve') return 'Prestes a vencer';
+      if (status === 'vence_em_breve') return 'A vencer';
       return 'Em dia';
     },
 
