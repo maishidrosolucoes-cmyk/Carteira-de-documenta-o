@@ -6,6 +6,7 @@ let supabaseClient = null;
 
 try {
   if (supabaseUrl.startsWith('http://') || supabaseUrl.startsWith('https://')) {
+    // Configuração do esquema 'documentos' globalmente no momento da criação do cliente
     supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
       db: { schema: 'documentos' }
     });
@@ -14,22 +15,28 @@ try {
   console.error("Erro crítico ao carregar Supabase:", error);
 }
 
+// Registo oficial do componente Alpine para evitar erros de inicialização em produção
 document.addEventListener('alpine:init', () => {
   Alpine.data('dashboard', () => ({
     documentos: [],
     categoriasApi: [],
     resumoApi: {},
     loading: false,
-    errorMessage: '',
+    errorMessage: '', // Variável para guardar e mostrar erros na interface
     search: '',
     statusFilter: '',
     categoriaFilter: '',
     selected: null,
+    showExportModal: false, // NOVO ESTADO: Controla a visibilidade do modal de exportação
 
     async init() {
+      // Bloqueia o scroll da página principal quando o modal abre
       this.$watch('selected', (value) => {
-        if (value) document.body.classList.add('overflow-hidden');
-        else document.body.classList.remove('overflow-hidden');
+        if (value) {
+          document.body.classList.add('overflow-hidden');
+        } else {
+          document.body.classList.remove('overflow-hidden');
+        }
       });
       
       await this.carregar();
@@ -37,14 +44,19 @@ document.addEventListener('alpine:init', () => {
 
     async carregar() {
       this.loading = true;
-      this.errorMessage = '';
+      this.errorMessage = ''; // Limpa os erros anteriores
       try {
         if (!supabaseClient) {
+           console.warn("Ignorando busca no banco pois o Supabase não está configurado.");
            this.documentos = [];
            return;
         }
 
-        const { data, error } = await supabaseClient.from('vw_documentos_status').select('*');
+        // Como o esquema já foi definido globalmente acima, chamamos apenas o from()
+        const { data, error } = await supabaseClient
+          .from('vw_documentos_status')
+          .select('*');
+
         if (error) throw error;
 
         // MOTOR DE REGRAS JS: Aplica as regras de 90 dias e Documento Vitalício
@@ -66,7 +78,8 @@ document.addEventListener('alpine:init', () => {
         });
         
       } catch (e) {
-        console.error('Erro:', e.message);
+        console.error('Erro ao carregar documentos do Supabase:', e.message);
+        // Guarda a mensagem de erro para mostrar visualmente ao utilizador
         this.errorMessage = e.message; 
       } finally {
         this.loading = false;
@@ -79,6 +92,78 @@ document.addEventListener('alpine:init', () => {
       this.categoriaFilter = '';
     },
 
+    // --- NOVA FUNÇÃO DE EXPORTAÇÃO DE RELATÓRIO (CSV) ---
+    exportarCSV() {
+      const docs = this.filteredDocumentos;
+      if (docs.length === 0) {
+        alert("Nenhum documento encontrado para exportar.");
+        return;
+      }
+
+      // Cabeçalho do CSV
+      let csv = "Apelido;Orgao Expedidor;Categoria;Vencimento;Dias Restantes;Status\n";
+
+      // Formatação das linhas extraindo apenas o essencial
+      docs.forEach(doc => {
+        const apelido = doc.apelido || '-';
+        const orgao = doc.orgao_expeditor || doc.orgaoExpeditor || '-';
+        const categoria = doc.categoria || '-';
+        const vencimento = this.formatDate(doc.vencimento);
+        const dias = doc.is_vitalicio ? 'Vitalicio' : (doc.dias_restantes != null ? doc.dias_restantes : (doc.diasRestantes != null ? doc.diasRestantes : '-'));
+        const status = this.labelStatus(doc);
+
+        // Limpeza de campos rigorosa à prova de bugs no VSCode (usando concatenação simples)
+        const linha = [apelido, orgao, categoria, vencimento, dias, status]
+          .map(campo => '"' + String(campo).split('"').join('""') + '"')
+          .join(';');
+        
+        csv += linha + "\n";
+      });
+
+      // Criação do ficheiro (.csv) com codificação UTF-8 e BOM para preservar acentos no Excel
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      
+      const dataAtual = new Date().toISOString().split('T')[0];
+      link.setAttribute("download", "Controle_Documentos_" + dataAtual + ".csv");
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Fecha o modal após o clique
+      this.showExportModal = false;
+    },
+
+    // --- NOVA FUNÇÃO DE EXPORTAÇÃO PARA WHATSAPP (RESUMO POR CATEGORIA) ---
+    exportarWhatsApp() {
+      const categorias = this.resumoCategorias;
+      if (categorias.length === 0) {
+        alert("Nenhum dado encontrado para enviar.");
+        return;
+      }
+
+      let textoRelatorio = "*Resumo de Documentações por Categoria* 📊\n\n";
+
+      categorias.forEach(cat => {
+        textoRelatorio += `*${cat.categoria}*\n`;
+        textoRelatorio += `🔴 Atrasado: ${cat.vencido} | 🟡 Breve: ${cat.venceEmBreve} | 🟢 OK: ${cat.emDia}\n\n`;
+      });
+
+      textoRelatorio += `_Total geral de documentos: ${this.stats.total}_`;
+
+      // Cria a URL e abre a nova janela com a API do WhatsApp
+      const urlBase = "https://api.whatsapp.com/send?text=";
+      const urlFinal = urlBase + encodeURIComponent(textoRelatorio);
+      window.open(urlFinal, '_blank');
+
+      // Fecha o modal após a abertura do link
+      this.showExportModal = false;
+    },
+    // --- FIM DA NOVA FUNÇÃO ---
+
     scrollToLista(status) {
       this.statusFilter = status;
       document.getElementById('documentos-section').scrollIntoView({ behavior: 'smooth' });
@@ -88,8 +173,8 @@ document.addEventListener('alpine:init', () => {
       const pesos = { 'vencido': 1, 'vence_em_breve': 2, 'em_dia': 3 };
 
       return this.documentos.filter(doc => {
-        const texto = `${doc.apelido || doc.documento || ''} ${doc.orgao_expeditor || doc.orgaoExpeditor || ''} ${doc.categoria || ''} ${doc.tipo_doc || doc.tipo_documento || doc.tipoDocumento || ''}`.toLowerCase();
-        const bateBusca = texto.includes(this.search.toLowerCase());
+        const texto = (doc.apelido || doc.documento || '') + ' ' + (doc.orgao_expeditor || doc.orgaoExpeditor || '') + ' ' + (doc.categoria || '') + ' ' + (doc.tipo_doc || doc.tipo_documento || doc.tipoDocumento || '');
+        const bateBusca = texto.toLowerCase().includes(this.search.toLowerCase());
         const status = doc.status_prazo || doc.statusPrazo;
         const bateStatus = !this.statusFilter || status === this.statusFilter;
         const bateCategoria = !this.categoriaFilter || doc.categoria === this.categoriaFilter;
@@ -110,8 +195,8 @@ document.addEventListener('alpine:init', () => {
 
     get stats() {
       const listaBase = this.documentos.filter(doc => {
-        const texto = `${doc.apelido || doc.documento || ''} ${doc.orgao_expeditor || doc.orgaoExpeditor || ''} ${doc.categoria || ''} ${doc.tipo_doc || doc.tipo_documento || doc.tipoDocumento || ''}`.toLowerCase();
-        const bateBusca = texto.includes(this.search.toLowerCase());
+        const texto = (doc.apelido || doc.documento || '') + ' ' + (doc.orgao_expeditor || doc.orgaoExpeditor || '') + ' ' + (doc.categoria || '') + ' ' + (doc.tipo_doc || doc.tipo_documento || doc.tipoDocumento || '');
+        const bateBusca = texto.toLowerCase().includes(this.search.toLowerCase());
         const bateCategoria = !this.categoriaFilter || doc.categoria === this.categoriaFilter;
         return bateBusca && bateCategoria;
       });
@@ -147,7 +232,7 @@ document.addEventListener('alpine:init', () => {
 
       return Object.values(mapa).sort((a, b) => b.total - a.total);
     },
-
+    
     // --- Helpers de UI simplificados e inteligentes ---
     
     labelStatus(doc) {
@@ -189,7 +274,7 @@ document.addEventListener('alpine:init', () => {
       if (!doc) return '-';
       if (doc.is_vitalicio) return 'Vitalício (Não vence)';
       const dias = doc.dias_restantes != null ? doc.dias_restantes : doc.diasRestantes;
-      return dias != null ? `${dias} dias restantes` : '-';
+      return dias != null ? dias + ' dias restantes' : '-';
     },
 
     formatDate(date) {
