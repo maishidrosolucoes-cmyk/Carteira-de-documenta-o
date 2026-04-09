@@ -258,7 +258,7 @@
         if (doc.is_vitalicio) return 'Vitalício';
         const status = doc.status_prazo || doc.statusPrazo;
         if (status === 'vencido') return 'Vencido';
-        if (status === 'vence_em_breve') return 'Prestes a vencer';
+        if (status === 'vence_em_breve') return 'A vencer';
         return 'Em dia';
       },
 
@@ -369,8 +369,8 @@
             <p class="font-medium text-sm sm:text-base text-emerald-700">Em dia</p>
             <p class="text-lg font-semibold text-emerald-700" x-text="stats.emDia"></p>
           </div>
-          <div @click="scrollToLista('vence_em_breve')" title="Filtrar prestes a vencer e ir para a lista" class="flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 cursor-pointer hover:bg-amber-100 transition-colors">
-            <p class="font-medium text-sm sm:text-base text-amber-700">Prestes a vencer</p>
+          <div @click="scrollToLista('vence_em_breve')" title="Filtrar A vencer e ir para a lista" class="flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 cursor-pointer hover:bg-amber-100 transition-colors">
+            <p class="font-medium text-sm sm:text-base text-amber-700">A vencer</p>
             <p class="text-lg font-semibold text-amber-700" x-text="stats.venceEmBreve"></p>
           </div>
           <div @click="scrollToLista('vencido')" title="Filtrar vencidos e ir para a lista" class="flex items-center justify-between rounded-xl bg-rose-50 px-4 py-3 cursor-pointer hover:bg-rose-100 transition-colors">
@@ -430,7 +430,7 @@
         <select x-model="statusFilter" class="rounded-xl border border-slate-200 px-4 py-3 text-sm w-full">
           <option value="">Todos os status</option>
           <option value="vencido">Vencidos</option>
-          <option value="vence_em_breve">Prestes a vencer</option>
+          <option value="vence_em_breve">A vencer</option>
           <option value="em_dia">Em dia</option>
         </select>
 
