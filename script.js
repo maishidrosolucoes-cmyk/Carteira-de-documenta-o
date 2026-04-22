@@ -1,86 +1,335 @@
-// Inicialização do Supabase
+// Configuração Imutável do Supabase
 const supabaseUrl = 'https://clbpujmdjbywbuevhyhg.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsYnB1am1kamJ5d2J1ZXZoeWhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyOTA3NTUsImV4cCI6MjA4OTg2Njc1NX0.3vwMm8mLEcg9nPzH2uyrB65mzxN_NMvvaLSn2OxKAxo';
 
 let supabaseClient = null;
 
 try {
-  if (supabaseUrl.startsWith('http://') || supabaseUrl.startsWith('https://')) {
-    // Configuração do esquema 'documentos' globalmente no momento da criação do cliente
-    supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
-      db: { schema: 'documentos' }
-    });
-  }
+  supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
+    db: { schema: 'documentos' }
+  });
 } catch (error) {
-  console.error("Erro crítico ao carregar Supabase:", error);
+  console.error("Erro crítico ao inicializar Supabase:", error);
 }
 
-// Registo oficial do componente Alpine para evitar erros de inicialização em produção
+// Inicialização do Alpine.js
 document.addEventListener('alpine:init', () => {
   Alpine.data('dashboard', () => ({
     documentos: [],
-    categoriasApi: [],
-    resumoApi: {},
+    notificacoes: [],
     loading: false,
-    errorMessage: '', // Variável para guardar e mostrar erros na interface
+    notificationsLoading: false,
+    errorMessage: '',
+    notificationsErrorMessage: '',
     search: '',
     statusFilter: '',
     categoriaFilter: '',
     selected: null,
-    showExportModal: false, // NOVO ESTADO: Controla a visibilidade do modal de exportação
+    showExportModal: false,
+    showNotificationsPanel: false,
+    notificationsCount: 0,
+    notificationsReadIds: [],
 
     async init() {
-      // Bloqueia o scroll da página principal quando o modal abre
-      this.$watch('selected', (value) => {
-        if (value) {
-          document.body.classList.add('overflow-hidden');
-        } else {
-          document.body.classList.remove('overflow-hidden');
-        }
-      });
-      
+      this.$watch('selected', () => this.atualizarBloqueioScroll());
+      this.$watch('showExportModal', () => this.atualizarBloqueioScroll());
+      this.$watch('showNotificationsPanel', () => this.atualizarBloqueioScroll());
+
+      this.carregarIdsNotificacoesLidas();
       await this.carregar();
+    },
+
+    atualizarBloqueioScroll() {
+      this.toggleScrollLock(!!(this.selected || this.showExportModal || this.showNotificationsPanel));
+    },
+
+    toggleScrollLock(isLocked) {
+      if (isLocked) document.body.classList.add('overflow-hidden');
+      else document.body.classList.remove('overflow-hidden');
+    },
+
+    notificationsSinceIso() {
+      const base = this.todayDate();
+      base.setMonth(base.getMonth() - 3);
+      base.setHours(0, 0, 0, 0);
+      return base.toISOString();
+    },
+
+    notificationsReadStorageKey() {
+      return 'documentacoes_notifications_read_ids_v1';
+    },
+
+    carregarIdsNotificacoesLidas() {
+      try {
+        const raw = window.localStorage.getItem(this.notificationsReadStorageKey());
+        const parsed = raw ? JSON.parse(raw) : [];
+        this.notificationsReadIds = Array.isArray(parsed) ? parsed.map((id) => String(id)) : [];
+      } catch (e) {
+        this.notificationsReadIds = [];
+      }
+    },
+
+    salvarIdsNotificacoesLidas() {
+      try {
+        window.localStorage.setItem(
+          this.notificationsReadStorageKey(),
+          JSON.stringify(this.notificationsReadIds)
+        );
+      } catch (e) {
+        console.warn('Falha ao guardar notificações lidas localmente:', e.message);
+      }
+    },
+
+    notificacaoJaLida(item) {
+      if (!item || item.id == null) return false;
+      return this.notificationsReadIds.includes(String(item.id));
+    },
+
+    marcarNotificacaoComoLida(item) {
+      if (!item || item.id == null) return;
+
+      const id = String(item.id);
+      if (!this.notificationsReadIds.includes(id)) {
+        this.notificationsReadIds = [...this.notificationsReadIds, id];
+        this.salvarIdsNotificacoesLidas();
+      }
+
+      this.atualizarContadorNotificacoes();
+    },
+
+    atualizarContadorNotificacoes() {
+      const unreadCount = this.notificacoes.filter((item) => !this.notificacaoJaLida(item)).length;
+      this.notificationsCount = unreadCount;
+    },
+
+    notificationItemClass(item) {
+      if (this.notificacaoJaLida(item)) {
+        return 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md focus:ring-slate-200';
+      }
+
+      return 'border-blue-200 bg-blue-50/80 hover:border-blue-300 hover:shadow-md focus:ring-blue-200';
+    },
+
+    notificationIconWrapClass(item) {
+      if (this.notificacaoJaLida(item)) {
+        return 'bg-slate-100 text-slate-500';
+      }
+
+      return 'bg-blue-100 text-blue-700';
+    },
+
+    notificationIconClass(item) {
+      return this.notificacaoJaLida(item) ? 'text-slate-500' : 'text-blue-700';
+    },
+
+    notificationTitleClass(item) {
+      return this.notificacaoJaLida(item) ? 'text-slate-800' : 'text-slate-900';
+    },
+
+    notificationTextClass(item) {
+      return this.notificacaoJaLida(item) ? 'text-slate-600' : 'text-slate-700';
+    },
+
+    notificationDateClass(item) {
+      return this.notificacaoJaLida(item) ? 'text-slate-400' : 'text-blue-600 font-medium';
+    },
+
+    async sincronizarNotificacoes() {
+      if (!supabaseClient) return null;
+
+      try {
+        this.notificationsErrorMessage = '';
+
+        const { data, error } = await supabaseClient.rpc('sincronizar_notificacoes_documentos');
+        if (error) throw error;
+
+        return data || null;
+      } catch (e) {
+        console.error('Falha ao sincronizar notificações:', e.message);
+        this.notificationsErrorMessage = e.message;
+        return null;
+      }
+    },
+
+    async carregarNotificacoes() {
+      if (!supabaseClient) return;
+
+      this.notificationsLoading = true;
+
+      try {
+        const { data, error } = await supabaseClient
+          .from('notificacoes_documentos')
+          .select('id, documento_id, apelido, documento, categoria, tipo_evento, status_anterior, status_novo, dias_restantes, vencimento, renova_antes, data_sugerida_renovacao, data_evento')
+          .gte('data_evento', this.notificationsSinceIso())
+          .order('data_evento', { ascending: false });
+
+        if (error) throw error;
+
+        this.notificacoes = data || [];
+
+        const notificationIds = new Set(this.notificacoes.map((item) => String(item.id)));
+        this.notificationsReadIds = this.notificationsReadIds.filter((id) => notificationIds.has(id));
+        this.salvarIdsNotificacoesLidas();
+        this.atualizarContadorNotificacoes();
+      } catch (e) {
+        console.error('Falha ao carregar notificações:', e.message);
+        this.notificationsErrorMessage = e.message;
+      } finally {
+        this.notificationsLoading = false;
+      }
+    },
+
+    async toggleNotificationsPanel() {
+      if (this.showNotificationsPanel) {
+        this.showNotificationsPanel = false;
+        return;
+      }
+
+      this.showNotificationsPanel = true;
+      await this.carregarNotificacoes();
+    },
+
+    closeNotificationsPanel() {
+      this.showNotificationsPanel = false;
+    },
+
+    parseDate(dateValue) {
+      if (!dateValue) return null;
+
+      const raw = String(dateValue).trim();
+      if (!raw) return null;
+      if (raw.includes('2999')) return new Date(2999, 0, 1);
+
+      const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (isoMatch) {
+        return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+      }
+
+      const brMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (brMatch) {
+        return new Date(Number(brMatch[3]), Number(brMatch[2]) - 1, Number(brMatch[1]));
+      }
+
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) return null;
+
+      return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+    },
+
+    parseDateTime(dateValue) {
+      if (!dateValue) return null;
+
+      const parsed = new Date(dateValue);
+      if (Number.isNaN(parsed.getTime())) return null;
+
+      return parsed;
+    },
+
+    formatNotificationDate(dateValue) {
+      const parsed = this.parseDateTime(dateValue);
+      if (!parsed) return '-';
+
+      return parsed.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    },
+
+    todayDate() {
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    },
+
+    diffInDays(fromDate, toDate) {
+      if (!(fromDate instanceof Date) || Number.isNaN(fromDate.getTime())) return null;
+      if (!(toDate instanceof Date) || Number.isNaN(toDate.getTime())) return null;
+
+      const oneDay = 24 * 60 * 60 * 1000;
+      return Math.round((toDate.getTime() - fromDate.getTime()) / oneDay);
+    },
+
+    getDiasRestantes(doc) {
+      if (!doc) return null;
+
+      const valor = doc.dias_restantes != null ? doc.dias_restantes : doc.diasRestantes;
+      if (valor == null || valor === '') return null;
+
+      const numero = Number(valor);
+      return Number.isNaN(numero) ? null : numero;
+    },
+
+    getStatusPrazo(doc) {
+      if (!doc) return '';
+
+      return doc.status_prazo || doc.statusPrazo || '';
+    },
+
+    calcularStatusFallback(doc) {
+      if (!doc) return 'em_dia';
+
+      const vencimento = this.parseDate(doc.vencimento);
+      const dataSugerida = this.parseDate(doc.data_sugerida_renovacao || doc.dataSugeridaRenovacao);
+      const hoje = this.todayDate();
+
+      if (vencimento && vencimento.getFullYear() === 2999) return 'em_dia';
+      if (vencimento && hoje > vencimento) return 'vencido';
+      if (dataSugerida && hoje >= dataSugerida) return 'vence_em_breve';
+
+      const dias = this.getDiasRestantes(doc);
+      if (dias != null) {
+        if (dias < 0) return 'vencido';
+        if (dias <= 90) return 'vence_em_breve';
+      }
+
+      return 'em_dia';
+    },
+
+    normalizarDocumento(doc) {
+      const documento = { ...doc };
+      const vencimentoTexto = documento.vencimento != null ? String(documento.vencimento) : '';
+      const statusAtual = this.getStatusPrazo(documento);
+      const dias = this.getDiasRestantes(documento);
+
+      documento.is_vitalicio = vencimentoTexto.includes('2999');
+
+      if (documento.is_vitalicio) {
+        documento.status_prazo = 'em_dia';
+      } else if (statusAtual) {
+        documento.status_prazo = statusAtual;
+      } else {
+        documento.status_prazo = this.calcularStatusFallback(documento);
+      }
+
+      if (dias != null) {
+        documento.dias_restantes = dias;
+      }
+
+      return documento;
     },
 
     async carregar() {
       this.loading = true;
-      this.errorMessage = ''; // Limpa os erros anteriores
-      try {
-        if (!supabaseClient) {
-           console.warn("Ignorando busca no banco pois o Supabase não está configurado.");
-           this.documentos = [];
-           return;
-        }
+      this.errorMessage = '';
 
-        // Como o esquema já foi definido globalmente acima, chamamos apenas o from()
+      try {
+        if (!supabaseClient) throw new Error("Cliente Supabase não configurado.");
+
+        await this.sincronizarNotificacoes();
+
         const { data, error } = await supabaseClient
           .from('vw_documentos_status')
           .select('*');
 
         if (error) throw error;
 
-        // MOTOR DE REGRAS JS: Aplica as regras de 90 dias e Documento Vitalício
-        this.documentos = (data || []).map(doc => {
-          const dias = doc.dias_restantes != null ? doc.dias_restantes : doc.diasRestantes;
-          
-          if (doc.vencimento && doc.vencimento.includes('2999')) {
-            doc.is_vitalicio = true;
-            doc.status_prazo = 'em_dia'; // Mantém como 'em dia' para contabilizar nos cards corretamente
-          } else {
-            doc.is_vitalicio = false;
-            if (dias != null) {
-              if (dias < 0) doc.status_prazo = 'vencido';
-              else if (dias <= 90) doc.status_prazo = 'vence_em_breve'; // Regra estrita de 90 dias
-              else doc.status_prazo = 'em_dia';
-            }
-          }
-          return doc;
-        });
-        
+        this.documentos = (data || []).map((doc) => this.normalizarDocumento(doc));
+        await this.carregarNotificacoes();
       } catch (e) {
-        console.error('Erro ao carregar documentos do Supabase:', e.message);
-        // Guarda a mensagem de erro para mostrar visualmente ao utilizador
-        this.errorMessage = e.message; 
+        console.error('Falha na comunicação com Banco de Dados:', e.message);
+        this.errorMessage = e.message;
       } finally {
         this.loading = false;
       }
@@ -92,18 +341,16 @@ document.addEventListener('alpine:init', () => {
       this.categoriaFilter = '';
     },
 
-    // --- NOVA FUNÇÃO DE EXPORTAÇÃO DE RELATÓRIO (CSV) ---
+    // --- MOTOR DE EXPORTAÇÃO CSV ---
     exportarCSV() {
       const docs = this.filteredDocumentos;
       if (docs.length === 0) {
-        alert("Nenhum documento encontrado para exportar.");
+        alert("Nenhum documento encontrado com os filtros atuais.");
         return;
       }
 
-      // Cabeçalho do CSV
       let csv = "Apelido;Orgao Expedidor;Categoria;Vencimento;Dias Restantes;Status\n";
 
-      // Formatação das linhas extraindo apenas o essencial
       docs.forEach(doc => {
         const apelido = doc.apelido || '-';
         const orgao = doc.orgao_expeditor || doc.orgaoExpeditor || '-';
@@ -112,36 +359,29 @@ document.addEventListener('alpine:init', () => {
         const dias = doc.is_vitalicio ? 'Vitalicio' : (doc.dias_restantes != null ? doc.dias_restantes : (doc.diasRestantes != null ? doc.diasRestantes : '-'));
         const status = this.labelStatus(doc);
 
-        // Limpeza de campos rigorosa à prova de bugs no VSCode (usando concatenação simples)
         const linha = [apelido, orgao, categoria, vencimento, dias, status]
           .map(campo => '"' + String(campo).split('"').join('""') + '"')
           .join(';');
-        
+
         csv += linha + "\n";
       });
 
-      // Criação do ficheiro (.csv) com codificação UTF-8 e BOM para preservar acentos no Excel
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.setAttribute("href", url);
-      
-      const dataAtual = new Date().toISOString().split('T')[0];
-      link.setAttribute("download", "Controle_Documentos_" + dataAtual + ".csv");
-      
+      link.href = URL.createObjectURL(blob);
+      link.download = `Controle_Documentos_${new Date().toISOString().split('T')[0]}.csv`;
+
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
-      // Fecha o modal após o clique
       this.showExportModal = false;
     },
 
-    // --- NOVA FUNÇÃO DE EXPORTAÇÃO PARA WHATSAPP (RESUMO POR CATEGORIA) ---
+    // --- MOTOR DE EXPORTAÇÃO WHATSAPP ---
     exportarWhatsApp() {
       const categorias = this.resumoCategorias;
       if (categorias.length === 0) {
-        alert("Nenhum dado encontrado para enviar.");
+        alert("Nenhum dado encontrado para partilhar.");
         return;
       }
 
@@ -152,60 +392,48 @@ document.addEventListener('alpine:init', () => {
         textoRelatorio += `🔴 Atrasado: ${cat.vencido} | 🟡 Breve: ${cat.venceEmBreve} | 🟢 OK: ${cat.emDia}\n\n`;
       });
 
-      textoRelatorio += `_Total geral de documentos: ${this.stats.total}_`;
+      textoRelatorio += `_Total filtrado: ${this.stats.total} documento(s)_`;
 
-      // Cria a URL e abre a nova janela com a API do WhatsApp
-      const urlBase = "https://api.whatsapp.com/send?text=";
-      const urlFinal = urlBase + encodeURIComponent(textoRelatorio);
-      window.open(urlFinal, '_blank');
-
-      // Fecha o modal após a abertura do link
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(textoRelatorio)}`, '_blank');
       this.showExportModal = false;
     },
-    // --- FIM DA NOVA FUNÇÃO ---
 
     scrollToLista(status) {
       this.statusFilter = status;
       document.getElementById('documentos-section').scrollIntoView({ behavior: 'smooth' });
     },
 
+    // --- LÓGICA REATIVA DE FILTRAGEM ---
     get filteredDocumentos() {
       const pesos = { 'vencido': 1, 'vence_em_breve': 2, 'em_dia': 3 };
 
       return this.documentos.filter(doc => {
-        const texto = (doc.apelido || doc.documento || '') + ' ' + (doc.orgao_expeditor || doc.orgaoExpeditor || '') + ' ' + (doc.categoria || '') + ' ' + (doc.tipo_doc || doc.tipo_documento || doc.tipoDocumento || '');
-        const bateBusca = texto.toLowerCase().includes(this.search.toLowerCase());
-        const status = doc.status_prazo || doc.statusPrazo;
+        const textoBusca = (doc.apelido || doc.documento || '') + ' ' + (doc.orgao_expeditor || doc.orgaoExpeditor || '') + ' ' + (doc.categoria || '') + ' ' + (doc.tipo_doc || doc.tipo_documento || doc.tipoDocumento || '');
+        const bateBusca = textoBusca.toLowerCase().includes(this.search.toLowerCase());
+        const status = this.getStatusPrazo(doc);
         const bateStatus = !this.statusFilter || status === this.statusFilter;
         const bateCategoria = !this.categoriaFilter || doc.categoria === this.categoriaFilter;
         return bateBusca && bateStatus && bateCategoria;
       }).sort((a, b) => {
-        const statusA = a.status_prazo || a.statusPrazo;
-        const statusB = b.status_prazo || b.statusPrazo;
+        const statusA = this.getStatusPrazo(a);
+        const statusB = this.getStatusPrazo(b);
         const pesoA = pesos[statusA] || 4;
         const pesoB = pesos[statusB] || 4;
-        
+
         if (pesoA !== pesoB) return pesoA - pesoB;
-        
-        // Empurra os vitalícios para o fim da lista dos "Em dia"
-        const getDias = (d) => d.is_vitalicio ? 999999 : (d.dias_restantes != null ? d.dias_restantes : (d.diasRestantes != null ? d.diasRestantes : 999999));
+
+        const getDias = (d) => d.is_vitalicio ? 999999 : (this.getDiasRestantes(d) != null ? this.getDiasRestantes(d) : 999999);
         return getDias(a) - getDias(b);
       });
     },
 
     get stats() {
-      const listaBase = this.documentos.filter(doc => {
-        const texto = (doc.apelido || doc.documento || '') + ' ' + (doc.orgao_expeditor || doc.orgaoExpeditor || '') + ' ' + (doc.categoria || '') + ' ' + (doc.tipo_doc || doc.tipo_documento || doc.tipoDocumento || '');
-        const bateBusca = texto.toLowerCase().includes(this.search.toLowerCase());
-        const bateCategoria = !this.categoriaFilter || doc.categoria === this.categoriaFilter;
-        return bateBusca && bateCategoria;
-      });
-
+      const listaBase = this.filteredDocumentos;
       return {
         total: listaBase.length,
-        emDia: listaBase.filter(d => (d.status_prazo || d.statusPrazo) === 'em_dia').length,
-        venceEmBreve: listaBase.filter(d => (d.status_prazo || d.statusPrazo) === 'vence_em_breve').length,
-        vencido: listaBase.filter(d => (d.status_prazo || d.statusPrazo) === 'vencido').length
+        emDia: listaBase.filter(d => this.getStatusPrazo(d) === 'em_dia').length,
+        venceEmBreve: listaBase.filter(d => this.getStatusPrazo(d) === 'vence_em_breve').length,
+        vencido: listaBase.filter(d => this.getStatusPrazo(d) === 'vencido').length
       };
     },
 
@@ -218,7 +446,7 @@ document.addEventListener('alpine:init', () => {
 
       this.filteredDocumentos.forEach(doc => {
         const categoria = doc.categoria || 'Sem categoria';
-        const status = doc.status_prazo || doc.statusPrazo;
+        const status = this.getStatusPrazo(doc);
 
         if (!mapa[categoria]) {
           mapa[categoria] = { categoria, total: 0, emDia: 0, venceEmBreve: 0, vencido: 0 };
@@ -232,22 +460,84 @@ document.addEventListener('alpine:init', () => {
 
       return Object.values(mapa).sort((a, b) => b.total - a.total);
     },
-    
-    // --- Helpers de UI simplificados e inteligentes ---
-    
+
+    labelStatusValue(status) {
+      if (status === 'vencido') return 'Vencido';
+      if (status === 'vence_em_breve') return 'Prestes a vencer';
+      if (status === 'em_dia') return 'Em dia';
+      return '-';
+    },
+
+    textoNotificacaoRapida(item) {
+      if (!item) return '-';
+      if (item.tipo_evento === 'vence_hoje') return 'Hoje é o último dia para renovação deste documento.';
+
+      const statusAnterior = this.labelStatusValue(item.status_anterior);
+      const statusNovo = this.labelStatusValue(item.status_novo);
+
+      if (statusAnterior !== '-' && statusNovo !== '-' && statusAnterior !== statusNovo) {
+        return `Mudou de ${statusAnterior} para ${statusNovo}.`;
+      }
+
+      if (statusNovo !== '-') {
+        return `Status alterado para ${statusNovo}.`;
+      }
+
+      return 'O status deste documento foi atualizado.';
+    },
+
+    async openNotificationDocument(item) {
+      if (!item || !item.documento_id) return;
+
+      let documento = this.documentos.find((doc) => String(doc.id) === String(item.documento_id));
+
+      if (!documento && supabaseClient) {
+        try {
+          const { data, error } = await supabaseClient
+            .from('vw_documentos_status')
+            .select('*')
+            .eq('id', item.documento_id)
+            .maybeSingle();
+
+          if (error) throw error;
+          if (data) {
+            documento = this.normalizarDocumento(data);
+
+            const jaExiste = this.documentos.some((doc) => String(doc.id) === String(item.documento_id));
+            if (!jaExiste) {
+              this.documentos = [documento, ...this.documentos];
+            }
+          }
+        } catch (e) {
+          console.error('Falha ao abrir documento a partir da notificação:', e.message);
+        }
+      }
+
+      if (!documento) return;
+
+      this.marcarNotificacaoComoLida(item);
+      this.showNotificationsPanel = false;
+
+      await this.$nextTick();
+      this.selected = documento;
+    },
+
+    // --- HELPERS DE UI RESPONSIVA ---
     labelStatus(doc) {
       if (!doc) return '-';
       if (doc.is_vitalicio) return 'Vitalício';
-      const status = doc.status_prazo || doc.statusPrazo;
+
+      const status = this.getStatusPrazo(doc);
       if (status === 'vencido') return 'Vencido';
-      if (status === 'vence_em_breve') return 'A vencer';
+      if (status === 'vence_em_breve') return 'Prestes a vencer';
       return 'Em dia';
     },
 
     badgeClass(doc) {
       if (!doc) return '';
-      if (doc.is_vitalicio) return 'bg-blue-100 text-blue-700'; // Crachá azul exclusivo para Vitalício
-      const status = doc.status_prazo || doc.statusPrazo;
+      if (doc.is_vitalicio) return 'bg-blue-100 text-blue-700';
+
+      const status = this.getStatusPrazo(doc);
       if (status === 'vencido') return 'bg-rose-100 text-rose-700';
       if (status === 'vence_em_breve') return 'bg-amber-100 text-amber-700';
       return 'bg-emerald-100 text-emerald-700';
@@ -256,31 +546,46 @@ document.addEventListener('alpine:init', () => {
     urgenciaDiasClass(doc) {
       if (!doc) return '';
       if (doc.is_vitalicio) return 'text-blue-700 font-medium';
-      const dias = doc.dias_restantes != null ? doc.dias_restantes : doc.diasRestantes;
-      if (dias == null) return '';
-      if (dias < 0) return 'text-rose-700 font-bold';
-      if (dias <= 90) return 'text-amber-700 font-bold';
+
+      const status = this.getStatusPrazo(doc);
+      if (status === 'vencido') return 'text-rose-700 font-bold';
+      if (status === 'vence_em_breve') return 'text-amber-700 font-bold';
       return 'text-slate-800 font-medium';
     },
 
     formatDias(doc) {
       if (!doc) return '-';
       if (doc.is_vitalicio) return 'Vitalício';
-      const dias = doc.dias_restantes != null ? doc.dias_restantes : doc.diasRestantes;
+
+      const dias = this.getDiasRestantes(doc);
       return dias != null ? dias : '-';
     },
 
     formatDiasTexto(doc) {
       if (!doc) return '-';
       if (doc.is_vitalicio) return 'Vitalício (Não vence)';
-      const dias = doc.dias_restantes != null ? doc.dias_restantes : doc.diasRestantes;
-      return dias != null ? dias + ' dias restantes' : '-';
+
+      const dias = this.getDiasRestantes(doc);
+      if (dias == null) return '-';
+      if (dias === 0) return 'Vence hoje';
+      if (dias < 0) return `${Math.abs(dias)} dia(s) em atraso`;
+      return `${dias} dias restantes`;
     },
 
     formatDate(date) {
       if (!date) return '-';
-      if (date.includes('2999')) return 'Vitalício';
-      return new Date(date + 'T00:00:00').toLocaleDateString('pt-BR');
+      if (String(date).includes('2999')) return 'Vitalício';
+
+      const partes = String(date).split('-');
+      if (partes.length === 3) return `${partes[2].slice(0, 2)}/${partes[1]}/${partes[0]}`;
+
+      const parsed = this.parseDate(date);
+      if (!parsed) return '-';
+
+      const dia = String(parsed.getDate()).padStart(2, '0');
+      const mes = String(parsed.getMonth() + 1).padStart(2, '0');
+      const ano = parsed.getFullYear();
+      return `${dia}/${mes}/${ano}`;
     }
   }));
 });
